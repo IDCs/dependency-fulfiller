@@ -26,11 +26,20 @@ export function extractIds(download: types.IDownload): IDownloadIds {
   if (download === undefined) {
     return undefined;
   }
-  const ids: IDownloadIds = util.getSafe(download.modInfo, ['nexus', 'ids'], undefined);
-  if (ids?.fileId === undefined || ids?.gameId === undefined || ids?.modId === undefined) {
-    return undefined;
+  const isValid = (ids: IDownloadIds) => (ids?.fileId !== undefined || ids?.gameId !== undefined || ids?.modId !== undefined);
+  let ids: IDownloadIds = util.getSafe(download.modInfo, ['nexus', 'ids'], undefined);
+  if (isValid(ids)) {
+    return ids;
   }
-  return ids;
+  const meta = util.getSafe(download.modInfo, ['meta', 'details'], undefined);
+  if (meta?.fileId !== undefined) {
+    ids = { fileId: meta.fileId, modId: meta.modId, gameId: download.game[0] };
+    if (isValid(ids)) {
+      return ids;
+    }
+  }
+
+  return undefined;
 }
 
 export function formatTime(input: Date): string {

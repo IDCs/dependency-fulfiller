@@ -231,10 +231,8 @@ async function genFromFilePath(api: types.IExtensionApi, filePath: string) {
       id: 'all-dependencies-fulfilled',
       displayMS: 5000,
     });
+    return Promise.resolve();
   } catch (err) {
-    err.message = (err.message.indexOf('SyntaxError'))
-      ? 'Invalid JSON string received - the clipboard based import expects valid JSON'
-      : err.message;
     api.showErrorNotification('Failed to download dependencies', err,
       { allowReport: false });
   }
@@ -254,7 +252,7 @@ function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
   for (const arcId of archiveIds) {
     const ids: IDownloadIds = extractIds(props.downloads[arcId]);
     if (ids === undefined || props.downloads[arcId]?.localPath === undefined) {
-      log('warn', 'failed to extract required information', JSON.stringify(props.downloads[arcId]));
+      log('warn', 'failed to extract required information', JSON.stringify(props.downloads[arcId].modInfo));
       continue;
     }
 
