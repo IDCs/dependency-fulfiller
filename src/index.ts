@@ -46,6 +46,9 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
 
   const gameModes = Object.keys(current);
   for (const gameMode of gameModes) {
+    if (prev[gameMode] === undefined) {
+      continue;
+    }
     const prevMods = Object.keys(prev[gameMode]);
     const currMods = Object.keys(current[gameMode]);
     if (!_.isEqual(prevMods, currMods)) {
