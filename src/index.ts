@@ -255,7 +255,11 @@ function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
   for (const arcId of archiveIds) {
     const ids: IDownloadIds = extractIds(props.downloads[arcId]);
     if (ids === undefined || props.downloads[arcId]?.localPath === undefined) {
-      log('warn', 'failed to extract required information', JSON.stringify(props.downloads[arcId].modInfo));
+      if (props.downloads[arcId] !== undefined) {
+        log('warn', 'failed to extract required information', JSON.stringify(props.downloads[arcId]));
+      } else {
+        log('warn', 'failed to extract required information - download archive missing', arcId);
+      }
       continue;
     }
 
