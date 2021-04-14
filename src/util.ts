@@ -42,6 +42,11 @@ export function extractIds(download: types.IDownload): IDownloadIds {
   return undefined;
 }
 
+export function isPremium(api: types.IExtensionApi) {
+  const state: types.IState = api.getState();
+  return util.getSafe(state, ['persistent', 'nexus', 'userInfo', 'isPremium'], false);
+}
+
 export function formatTime(input: Date): string {
   return [
     input.getFullYear(),

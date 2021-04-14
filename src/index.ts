@@ -3,13 +3,14 @@ import * as _ from 'lodash';
 import * as path from 'path';
 import { setTimeout } from 'timers';
 import turbowalk, { IEntry } from 'turbowalk';
-import { fs, log, selectors, types, util } from 'vortex-api';
+import { actions, fs, log, selectors, types, util } from 'vortex-api';
 
+import { setReadNonPremiumNotif } from './actions/settings';
 import { DEP_MAN_SUFFIX, NEXUS } from './common';
 import { downloadImpl } from './downloader';
 import settingsReducer from './reducers/settings';
-import { IDownloadIds, INexusDownloadInfo, IProps } from './types';
-import { compareIds, extractIds, formatTime, genIdentifier, genProps } from './util';
+import { IDownloadIds, IExtractedModData, INexusDownloadInfo, IProps, NotPremiumError } from './types';
+import { compareIds, extractIds, formatTime, genIdentifier, genProps, isPremium } from './util';
 import Settings from './views/Settings';
 
 // 5 minute installation timeout should be sufficient no ?
@@ -55,17 +56,15 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
       const stagingFolder = selectors.installPathForGame(state, gameMode);
       const tryGenFromFilePath = async (modId: string): Promise<void> => {
         state = api.getState();
-        const mod: types.IMod =
-          util.getSafe(state, ['persistent', 'mods', gameMode, modId], undefined);
+        const mod: types.IMod = util.getSafe(state, ['persistent', 'mods', gameMode, modId], undefined);
         if (mod?.installationPath === undefined) {
           // Well if the mod is gone, no point in still trying to do this.
           log('debug', 'failed to complete dependency check - mod was removed', modId);
-          return;
+          return Promise.resolve();
         }
         // Mod still installing - wait for it.
         if (mod.state === 'installing') {
-          return new Promise((resolve) => setTimeout(() =>
-            resolve(tryGenFromFilePath(modId)), 5000));
+          return new Promise((resolve) => setTimeout(() => resolve(tryGenFromFilePath(modId)), 5000));
         } else if (mod.state === 'installed') {
           const installationPath = path.join(stagingFolder, mod.installationPath);
           return genFromFilePath(api, installationPath);
@@ -94,37 +93,111 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
   }
 }
 
+function raiseRulesNotification(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
+  const hasRules = downloads.find(down => down.rules.length > 0) !== undefined;
+  if (!hasRules) {
+    return;
+  }
+
+  const t = api.translate;
+  api.sendNotification({
+    id: 'import-conflict-rules',
+    type: 'info',
+    message: t('Imported dependencies contained conflict rules'),
+    allowSuppress: false,
+    noDismiss: false,
+    actions: [
+      { title: 'More', action: (dismiss) => api.showDialog('question', t('Import conflict rules'), {
+        bbcode: t('The imported dependencies contain pre-defined rule metadata - if you would like to try '
+                + 'to import these, please make sure that all the dependencies have finished downloading '
+                + 'and are installed before clicking the "Import Rules" button.')
+      }, [
+        { label: 'Do This Later' },
+        {
+          label: 'Import Rules',
+          action: () => {
+            fulfillRules(api, downloads);
+            dismiss();
+          }
+        }
+      ])
+      }
+    ]
+  })
+}
+
+function fulfillRules(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
+  const props: IProps = genProps(api);
+  if (props === undefined) {
+    return;
+  }
+
+  // const reverseType = (rule: IModRule) => rule.type === 'before' ? 'after' : 'before';
+  const hasRule = (rule: types.IModRule, modId: string) => util.testModReference(props.mods[modId], rule.reference);
+
+  // const refMod = (rule: IModRule) => Object.keys(props.mods)
+  //   .map(iter => props.mods[iter])
+  //   .find(iter => util.testModReference(iter, rule.reference)
+  //               && iter.rules !== undefined
+  //               && (iter.rules.find(rule => findRule(rule, iter.id)) !== undefined));
+
+  const mod = (fileName) => path.basename(fileName, path.extname(fileName));
+  const match = (modId) => downloads.find(dwnl => mod(dwnl.archiveName) === modId) !== undefined;
+  const installed = Object.keys(props.mods).filter(match);
+  for (const download of downloads) {
+    if (download.rules === undefined) {
+      continue;
+    }
+
+    for (const rule of download.rules) {
+      if (installed.includes(rule.reference?.id) && !hasRule(rule, mod(download.archiveName))) {
+        api.store.dispatch(actions.addModRule(download.downloadIds.gameId, mod(download.archiveName), rule));
+      }
+    }
+  }
+}
+
 async function fulfillDependencies(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
   for (const download of downloads) {
     try {
       await downloadImpl(api as any, download);
     } catch (err) {
-      if (err instanceof util.ProcessCanceled) {
-        api.sendNotification({
-          message: 'Cannot fulfill dependencies automatically',
-          type: 'warning',
-          id: 'not-a-premium-account',
-          actions: [
-            {
-              title: 'More',
-              action: () => api.showDialog('info', 'Not a premium member', {
-                bbcode: 'As you probably know - Nexus Mods is one of the biggest mods '
-                      + 'hosting sites on the internet - this of course means that we must financially '
-                      + 'support an infrastructure capable of holding a MASSIVE volume of data; '
-                      + 'needless to say, this is very expensive and we wouldn\'t be able to afford '
-                      + 'to maintain and support it without your help.[br][/br][br][/br]'
-                      + 'Please understand that as a free user/supporter certain features will be '
-                      + 'unavailable as they will actively bypass the means by which you contribute '
-                      + 'to our community - in your case - by watching the ads on our website.[br][/br][br][/br]'
-                      + 'Although the dependency fulfiller extension is unable to pull your mods automatically, '
-                      + 'the mod pages for the required mods have been opened in your browser, please download the files from there.',
+      const state = api.getState();
+      if (err instanceof NotPremiumError) {
+        const readNotif = util.getSafe(state, ['settings', 'interface', 'readNonPremiumNotification'], false);
+        if (!readNotif) {
+          api.sendNotification({
+            message: 'Cannot fulfill dependencies automatically',
+            type: 'warning',
+            id: 'not-a-premium-account',
+            actions: [
+              {
+                title: 'More',
+                action: (dismiss) => api.showDialog('info', 'Not a premium member', {
+                  bbcode: 'As you probably know - Nexus Mods is one of the biggest mods '
+                        + 'hosting sites on the internet - this of course means that we must financially '
+                        + 'support an infrastructure capable of holding a MASSIVE volume of data; '
+                        + 'needless to say, this is very expensive and we wouldn\'t be able to afford '
+                        + 'to maintain and support it without your help.[br][/br][br][/br]'
+                        + 'Please understand that as a free user/supporter certain features will be '
+                        + 'unavailable as they will actively bypass the means by which you contribute '
+                        + 'to our community - in your case - by watching the ads on our website.[br][/br][br][/br]'
+                        + 'Although the dependency fulfiller extension is unable to pull your mods automatically, '
+                        + 'the mod pages for the required mods have been opened in your browser, please download the files from there.',
+                },
+                [
+                  {
+                    label: 'Close',
+                    action: () => {
+                      api.store.dispatch(setReadNonPremiumNotif(true));
+                      dismiss();
+                    }
+                  },
+                ]),
               },
-              [
-                { label: 'Close' },
-              ]),
-            },
-          ],
-        });
+            ],
+          });
+        }
       } else {
         api.showErrorNotification('Cannot fulfill dependencies automatically', err,
           { allowReport: false });
@@ -190,6 +263,7 @@ async function genFromClipboard(api: types.IExtensionApi) {
       id: 'all-dependencies-fulfilled',
       displayMS: 5000,
     });
+    raiseRulesNotification(api, nexusDownloads);
   } catch (err) {
     err.message = (err.message.indexOf('SyntaxError'))
       ? 'Invalid JSON string received - the clipboard based import expects valid JSON'
@@ -234,6 +308,7 @@ async function genFromFilePath(api: types.IExtensionApi, filePath: string) {
       id: 'all-dependencies-fulfilled',
       displayMS: 5000,
     });
+    raiseRulesNotification(api, uniqueDownloads);
     return Promise.resolve();
   } catch (err) {
     api.showErrorNotification('Failed to download dependencies', err,
@@ -251,8 +326,15 @@ function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
   const nexusDownloads: INexusDownloadInfo[] = [];
   const mods: types.IMod[] = modIds.map(modId =>
     props.mods[modId]).filter(mod => mod !== undefined);
-  const archiveIds: string[] = mods.map(mod => mod.archiveId).filter(arcId => arcId !== undefined);
-  for (const arcId of archiveIds) {
+  const modsData: IExtractedModData[] = mods.map(mod => ({
+    modId: mod.id,
+    archiveId: mod.archiveId,
+    rules: mod.rules || [],
+  })).filter(modData => modData.archiveId !== undefined);
+
+  const includedModIds = modsData.map(mod => mod.modId);
+  for (const modData of modsData) {
+    const arcId: string = modData.archiveId;
     const ids: IDownloadIds = extractIds(props.downloads[arcId]);
     if (ids === undefined || props.downloads[arcId]?.localPath === undefined) {
       if (props.downloads[arcId] !== undefined) {
@@ -267,6 +349,8 @@ function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
       archiveName: props.downloads[arcId].localPath,
       downloadIds: ids,
       allowAutoInstall: true,
+      rules: modData.rules.filter(rule =>
+        includedModIds.includes(rule.reference.id)),
     };
     nexusDownloads.push(nexusDownload);
   }
