@@ -94,7 +94,7 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
 }
 
 function raiseRulesNotification(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
-  const hasRules = downloads.find(down => down.rules.length > 0) !== undefined;
+  const hasRules = downloads.find(down => down.rules !== undefined && down.rules.length > 0) !== undefined;
   if (!hasRules) {
     return;
   }
