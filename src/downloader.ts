@@ -1,7 +1,7 @@
 import { log, types, util } from 'vortex-api';
 
 import { INexusDownloadInfo, NotPremiumError } from './types';
-import { isPremium } from './util';
+import { convertGameDomain, isPremium } from './util';
 
 function genDownloadProps(api: types.IExtensionApi, archiveName: string) {
   const state = api.getState();
@@ -16,7 +16,7 @@ async function install(api: types.IExtensionApi,
   const state = api.getState();
   if (downloadInfo.allowAutoInstall && state.settings.automation?.['install'] !== true) {
     const mods: { [modId: string]: types.IMod } =
-      util.getSafe(state, ['persistent', 'mods', downloadInfo.downloadIds.gameId], {});
+      util.getSafe(state, ['persistent', 'mods', convertGameDomain(downloadInfo.downloadIds.gameId)], {});
     const ismodInstalled = Object.keys(mods).find(id =>
       mods[id].attributes?.fileId === downloadInfo.downloadIds.fileId) !== undefined;
     if (!ismodInstalled) {
@@ -35,22 +35,28 @@ async function install(api: types.IExtensionApi,
   return Promise.resolve(undefined);
 }
 
-export async function downloadImpl(api: types.IExtensionApi, downloadInfo: INexusDownloadInfo) {
+export async function downloadImpl(api: types.IExtensionApi,
+                                   downloadInfo: INexusDownloadInfo,
+                                   progress?: (archiveName: string) => void) {
   const { downloadIds, archiveName, allowAutoInstall } = downloadInfo;
-  const state: types.IState = api.getState();
   if (!isPremium(api)) {
     return Promise.reject(new NotPremiumError());
   }
+  if (progress) {
+    progress(downloadInfo.archiveName);
+  }
   if (genDownloadProps(api, archiveName).downloadId !== undefined) {
     const { downloadId } = genDownloadProps(api, downloadInfo.archiveName);
-    return install(api, downloadInfo, downloadId);
+    install(api, downloadInfo, downloadId);
+    return Promise.resolve();
   }
 
-  return api.emitAndAwait('nexus-download',
-    downloadIds.gameId, downloadIds.modId, downloadIds.fileId, archiveName, allowAutoInstall)
+  return api.emitAndAwait('nexus-download', convertGameDomain(downloadIds.gameId),
+    downloadIds.modId, downloadIds.fileId, archiveName, allowAutoInstall)
     .then(() => {
       const { downloadId } = genDownloadProps(api, downloadInfo.archiveName);
-      return install(api, downloadInfo, downloadId);
+      install(api, downloadInfo, downloadId);
+      return Promise.resolve();
     })
     .catch(err => {
       log('error', 'failed to download from NexusMods.com',

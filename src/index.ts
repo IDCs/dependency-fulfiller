@@ -4,14 +4,17 @@ import * as path from 'path';
 import { setTimeout } from 'timers';
 import turbowalk, { IEntry } from 'turbowalk';
 import { actions, fs, log, selectors, types, util } from 'vortex-api';
-
 import { setReadNonPremiumNotif } from './actions/settings';
-import { DEP_MAN_SUFFIX, NEXUS } from './common';
+import { setOpenProfileSelect, setProfileUserData, setUserDataFilePath } from './actions/session';
+import { ACTIVITY_NOTIF, DEP_MAN_SUFFIX, NEXUS } from './common';
 import { downloadImpl } from './downloader';
 import settingsReducer from './reducers/settings';
-import { IDownloadIds, IExtractedModData, INexusDownloadInfo, IProps, NotPremiumError } from './types';
-import { compareIds, extractIds, formatTime, genIdentifier, genProps, isPremium } from './util';
+import sessionReducer from './reducers/session';
+import { IDownloadIds, IExtractedModData, INexusDownloadInfo, IProfileData, IProps, NotPremiumError } from './types';
+import { convertGameDomain, compareIds, extractIds, formatTime,
+  genIdentifier, genProps, isPremium } from './util';
 import Settings from './views/Settings';
+import ProfileSelectionDialog from './views/ProfileSelectionDialog';
 
 // 5 minute installation timeout should be sufficient no ?
 //  might make this configurable by the user in the future.
@@ -19,16 +22,25 @@ const TIMEOUT_MS = 60000 * 5;
 
 function init(context: types.IExtensionContext) {
   context.registerReducer(['settings', 'interface'], settingsReducer);
+  context.registerReducer(['session', 'depfulfiller'], sessionReducer);
+
   context.registerAction('mods-action-icons', 300, 'clone', {}, 'Export Dependencies',
     instanceIds => genDependencyManifest(context.api, instanceIds));
 
   context.registerAction('mods-multirow-actions', 300, 'clone', {}, 'Export Dependencies',
     instanceIds => genDependencyManifest(context.api, instanceIds));
 
+  context.registerAction('mod-icons', 300, 'clone', {}, 'Import From User State',
+    instanceIds => { genFromUserData(context.api) });
+
   context.registerAction('mod-icons', 300, 'import', {}, 'Import Dependencies',
     instanceIds => queryImportType(context.api));
 
   context.registerSettings('Interface', Settings, undefined, undefined, 10);
+
+  context.registerDialog('depfulfiller-select-profile-dialog', ProfileSelectionDialog, () => ({
+    onSelectProfile: (profileData: IProfileData) => onProfileSelect(context.api, profileData),
+  }));
 
   context.once(() => {
     context.api.onStateChange(['persistent', 'mods'],
@@ -36,6 +48,114 @@ function init(context: types.IExtensionContext) {
   });
 
   return true;
+}
+
+async function onProfileSelect(api: types.IExtensionApi, profileData: IProfileData) {
+  const state = api.getState();
+  const filePath = util.getSafe(state, ['session', 'depfulfiller', 'userDataFilePath'], undefined);
+  if (filePath === undefined) {
+    api.showErrorNotification('Invalid userdata filepath', new util.NotFound('User data file'));
+    return;
+  }
+
+  try {
+    const data = await fs.readFileAsync(filePath, { encoding: 'utf8' });
+    let persistent = JSON.parse(data);
+    persistent = persistent.persistent !== undefined
+      ? persistent.persistent
+      : persistent;
+    if (persistent.downloads.files === undefined
+     || persistent.mods?.[profileData.gameId] === undefined
+     || persistent.profiles === undefined) {
+      throw new util.DataInvalid('Selected file does not contain required data');
+    }
+
+    const nexusDownloads: INexusDownloadInfo[] = [];
+    const mods: types.IMod[] = profileData.enabledModIds.map(modId =>
+      persistent.mods[profileData.gameId][modId]).filter(mod => mod !== undefined);
+    const modsData: IExtractedModData[] = mods.map(mod => ({
+      modId: mod.id,
+      archiveId: mod.archiveId,
+      rules: mod.rules || [],
+    })).filter(modData => modData.archiveId !== undefined);
+
+    const includedModIds = modsData.map(mod => mod.modId);
+    for (const modData of modsData) {
+      const arcId: string = modData.archiveId;
+      const ids: IDownloadIds = extractIds(persistent.downloads.files[arcId]);
+      if (ids === undefined || persistent.downloads.files[arcId]?.localPath === undefined) {
+        if (persistent.downloads.files[arcId] !== undefined) {
+          log('warn', 'failed to extract required information', JSON.stringify(persistent.downloads.files[arcId]));
+        } else {
+          log('warn', 'failed to extract required information - download archive missing', arcId);
+        }
+        continue;
+      }
+
+      const nexusDownload: INexusDownloadInfo = {
+        archiveName: persistent.downloads.files[arcId].localPath,
+        downloadIds: ids,
+        allowAutoInstall: true,
+        rules: modData.rules.filter(rule =>
+          includedModIds.includes(rule.reference.id)),
+      };
+      nexusDownloads.push(nexusDownload);
+    }
+
+    await fulfillDependencies(api, nexusDownloads);
+    api.sendNotification({
+      message: 'All dependencies fulfilled',
+      type: 'success',
+      id: 'all-dependencies-fulfilled',
+      displayMS: 5000,
+    });
+    raiseRulesNotification(api, nexusDownloads);
+  } catch (err) {
+    api.showErrorNotification('Failed to generate dependencies from user data', err,
+      { allowReport: false });
+  }
+}
+
+async function genFromUserData(api: types.IExtensionApi): Promise<void> {
+  const selectedFile = await api.selectFile({
+    title: 'User Persistent Data',
+    filters: [{ name: 'JSON file', extensions: ['json'] }]
+  });
+
+  if (selectedFile === undefined) {
+    // Must've canceled.
+    return;
+  }
+  try {
+    const data = await fs.readFileAsync(selectedFile, { encoding: 'utf8' });
+    let persistent = JSON.parse(data);
+    persistent = persistent.persistent !== undefined
+      ? persistent.persistent
+      : persistent;
+    if (persistent.downloads === undefined
+     || persistent.mods === undefined
+     || persistent.profiles === undefined) {
+      throw new util.DataInvalid('Selected file does not contain required data');
+    }
+
+    api.store.dispatch(setUserDataFilePath(selectedFile));
+    const profileData: { [profileId: string]: IProfileData } = Object.keys(persistent.profiles).reduce((accum, iter) => {
+      const profile = persistent.profiles[iter];
+      const modState = util.getSafe(profile, ['modState'], {});
+      accum[iter] = {
+        id: iter,
+        gameId: profile.gameId,
+        enabledModIds: Object.keys(modState).filter(modId => util.getSafe(modState, [modId, 'enabled'], false)),
+      };
+      return accum;
+    }, {});
+
+    api.store.dispatch(setProfileUserData(profileData));
+    api.store.dispatch(setOpenProfileSelect(true));
+  } catch (err) {
+    api.showErrorNotification('Failed to generate dependencies from user data', err,
+      { allowReport: false });
+  }
 }
 
 async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
@@ -151,16 +271,31 @@ function fulfillRules(api: types.IExtensionApi, downloads: INexusDownloadInfo[])
 
     for (const rule of download.rules) {
       if (installed.includes(rule.reference?.id) && !hasRule(rule, mod(download.archiveName))) {
-        api.store.dispatch(actions.addModRule(download.downloadIds.gameId, mod(download.archiveName), rule));
+        api.store.dispatch(actions.addModRule(convertGameDomain(download.downloadIds.gameId), mod(download.archiveName), rule));
       }
     }
   }
 }
 
 async function fulfillDependencies(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
+  const totalDownloads = downloads.length;
+  let idx = 0;
+  const progress = (archiveName: string) => {
+    api.sendNotification({
+      id: ACTIVITY_NOTIF,
+      type: 'activity',
+      title: 'Downloading dependencies - this can take a while!',
+      message: archiveName,
+      noDismiss: true,
+      allowSuppress: false,
+      progress: (idx * 100) / totalDownloads,
+    });
+    ++idx;
+  };
+
   for (const download of downloads) {
     try {
-      await downloadImpl(api as any, download);
+      await downloadImpl(api as any, download, progress);
     } catch (err) {
       const state = api.getState();
       if (err instanceof NotPremiumError) {
@@ -225,6 +360,8 @@ async function fulfillDependencies(api: types.IExtensionApi, downloads: INexusDo
       util.opn(url).catch(err => null);
     }
   }
+
+  api.dismissNotification(ACTIVITY_NOTIF);
 }
 
 function queryImportType(api: types.IExtensionApi) {

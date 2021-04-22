@@ -9,6 +9,17 @@ export function toBlue<T>(func: (...args: any[]) => Promise<T>): (...args: any[]
   return (...args: any[]) => Bluebird.resolve(func(...args));
 }
 
+const convertableNames = {
+  skyrimspecialedition: 'skyrimse',
+  newvegas: 'falloutnv',
+  elderscrollsonline: 'teso',
+}
+
+export function convertGameDomain(gameId: string) {
+  return (convertableNames[gameId] !== undefined)
+    ? convertableNames[gameId] : gameId;
+}
+
 export function genProps(api: types.IExtensionApi, profileId?: string): IProps {
   const state = api.getState();
   const profile = (profileId !== undefined)

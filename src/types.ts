@@ -39,3 +39,9 @@ export interface IExtractedModData {
   archiveId: string;
   rules: types.IModRule[];
 }
+
+export interface IProfileData {
+  id: string;
+  gameId: string;
+  enabledModIds: string[];
+}
