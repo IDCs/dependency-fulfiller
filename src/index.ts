@@ -30,11 +30,14 @@ function init(context: types.IExtensionContext) {
   context.registerAction('mods-multirow-actions', 300, 'clone', {}, 'Export Dependencies',
     instanceIds => genDependencyManifest(context.api, instanceIds));
 
-  context.registerAction('mod-icons', 300, 'clone', {}, 'Import From User State',
-    instanceIds => { genFromUserData(context.api) });
-
-  context.registerAction('mod-icons', 300, 'import', {}, 'Import Dependencies',
+  context.registerAction('mod-icons', 300, 'import', {}, 'Import From Dependencies Dialog',
     instanceIds => queryImportType(context.api));
+
+  context.registerAction('mod-icons', 300, 'import', {}, 'Import From Application State',
+    instanceIds => { genFromUserData(context.api) }, () => {
+      const state = context.api.getState();
+      return util.getSafe(state, ['settings', 'interface', 'fulfillerDebugMode'], false);
+    });
 
   context.registerSettings('Interface', Settings, undefined, undefined, 10);
 

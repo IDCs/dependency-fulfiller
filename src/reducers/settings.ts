@@ -7,12 +7,16 @@ const settingsReducer: types.IReducerSpec = {
     [actions.setAutoFulfillDependencies as any]: (state, payload) => {
       return util.setSafe(state, ['autofulfill'], payload);
     },
+    [actions.setEnableDebugMode as any]: (state, payload) => {
+      return util.setSafe(state, ['fulfillerDebugMode'], payload);
+    },
     [actions.setReadNonPremiumNotif as any]: (state, payload) => {
       return util.setSafe(state, ['readNonPremiumNotification'], payload);
     },
   },
   defaults: {
     autofulfill: false,
+    fulfillerDebugMode: false,
     readNonPremiumNotification: false,
   },
 };

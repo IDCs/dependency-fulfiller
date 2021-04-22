@@ -5,5 +5,8 @@ export const setAutoFulfillDependencies =
     return fulfill;
   });
 
+export const setEnableDebugMode =
+  createAction('SET_DEP_FULFILLER_DEBUG', (debug: boolean) => debug);
+
 export const setReadNonPremiumNotif =
   createAction('SET_READ_NON_PREMIUM_NOTIFICATION', (read: boolean) => read);

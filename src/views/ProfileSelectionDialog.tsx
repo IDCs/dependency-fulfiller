@@ -41,10 +41,13 @@ class ProfileSelectionDialog extends ComponentEx<IProps, IComponentState> {
     const { selectedProfileId } = this.state;
     const profileIds = Object.keys(profileData);
     const title = selectedProfileId !== undefined
-      ? `${selectedProfileId}_${profileData[selectedProfileId].gameId}(enabled: ${profileData[selectedProfileId].enabledModIds.length})`
+      ? `${selectedProfileId} - ${profileData[selectedProfileId].gameId} (enabled: ${profileData[selectedProfileId].enabledModIds.length})`
       : 'Select Profile';
     return (
       <Modal id='import-select-profile' show={open} onHide={this.close}>
+        <Modal.Header>
+          <h4> {t('Select a Profile')} </h4>
+        </Modal.Header>
         <Modal.Body>
           {t('Select the profile you wish to import from:')}
           <br />
@@ -78,7 +81,7 @@ class ProfileSelectionDialog extends ComponentEx<IProps, IComponentState> {
 
   private renderProfile = (profId: string) => {
     const { profileData } = this.props;
-    const text = `${profId}_${profileData[profId].gameId}(enabled: ${profileData[profId].enabledModIds.length})`;
+    const text = `${profId} - ${profileData[profId].gameId} (enabled: ${profileData[profId].enabledModIds.length})`;
     return <MenuItem key={profId} eventKey={profId}>{text}</MenuItem>;
   }
 

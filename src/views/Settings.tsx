@@ -5,15 +5,17 @@ import { connect } from 'react-redux';
 import * as Redux from 'redux';
 import { ComponentEx, More, Toggle, types, util } from 'vortex-api';
 
-import { setAutoFulfillDependencies } from '../actions/settings';
+import { setAutoFulfillDependencies, setEnableDebugMode } from '../actions/settings';
 import { DEP_MAN_SUFFIX } from '../common';
 
 interface IConnectedProps {
   autoFulfill: boolean;
+  debugMode: boolean;
 }
 
 interface IActionProps {
   onSetAutoFulfillDependencies: (fulfill: boolean) => void;
+  onSetEnableDebugMode: (debug: boolean) => void;
 }
 
 type IProps = IActionProps & IConnectedProps;
@@ -37,10 +39,25 @@ class Settings extends ComponentEx<IProps, {}> {
             + 'mod in the first place)', { replace: { suffix: DEP_MAN_SUFFIX } })}
           </More>
         </Toggle>
+        <Toggle
+          checked={this.props.debugMode}
+          onToggle={this.enableDebugMode}
+        >
+          {t('Enable ability to import dependencies from application state backups')}
+          <More id='dep-fulfill-info2' name='Debug Mode'>
+          {t('If checked, Vortex will enable an additional import button which is configured '
+           + 'to use application state backups - this is intended to be used by Vortex developers '
+           + 'to re-create user mods setup for debugging purposes - use at own risk!', { replace: { suffix: DEP_MAN_SUFFIX } })}
+          </More>
+        </Toggle>
       </div>
     );
   }
 
+  private enableDebugMode = (enabled: boolean) => {
+    const { onSetEnableDebugMode } = this.props;
+    onSetEnableDebugMode(enabled);
+  }
   private toggle = (enabled: boolean) => {
     const { onSetAutoFulfillDependencies } = this.props;
     onSetAutoFulfillDependencies(enabled);
@@ -50,6 +67,7 @@ class Settings extends ComponentEx<IProps, {}> {
 function mapStateToProps(state: types.IState): IConnectedProps {
   return {
     autoFulfill: util.getSafe(state, ['settings', 'interface', 'autofulfill'], false),
+    debugMode: util.getSafe(state, ['settings', 'interface', 'fulfillerDebugMode'], false),
   };
 }
 
@@ -57,6 +75,8 @@ function mapDispatchToProps(dispatch: Redux.Dispatch<any>): IActionProps {
   return {
     onSetAutoFulfillDependencies: (fulfill: boolean) =>
       dispatch(setAutoFulfillDependencies(fulfill)),
+    onSetEnableDebugMode: (debugMode: boolean) =>
+      dispatch(setEnableDebugMode(debugMode)),
   };
 }
 
