@@ -35,7 +35,6 @@ Example data:
 
 ### What it doesn't do:
 
-- Will not export conflict rules
 - Will not export mods sourced outside of NexusMods.com
 - Will not export mods with orphaned/missing download archives
 - Will not export manually added mods unless the mod's metadata is populated (use the "Guess Id" buttons to have Vortex identify your mod and pull the metadata for you)
@@ -44,7 +43,7 @@ Example data:
 ### Potential future enhancements:
 
 - Add ability to export/import external dependencies
-- Add ability to export mod conflict rules
+- ~~Add ability to export/import mod conflict rules~~
 - A more robust downloading experience for non-premium users
 - Add metadata resolution to automatically detect manually added mods (sourced from NexusMods)
 
