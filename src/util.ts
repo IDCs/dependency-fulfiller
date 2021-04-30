@@ -37,7 +37,7 @@ export function extractIds(download: types.IDownload): IDownloadIds {
   if (download === undefined) {
     return undefined;
   }
-  const isValid = (ids: IDownloadIds) => (ids?.fileId !== undefined || ids?.gameId !== undefined || ids?.modId !== undefined);
+  const isValid = (ids: IDownloadIds) => (ids?.fileId !== undefined && ids?.gameId !== undefined && ids?.modId !== undefined);
   let ids: IDownloadIds = util.getSafe(download.modInfo, ['nexus', 'ids'], undefined);
   if (isValid(ids)) {
     return ids;
