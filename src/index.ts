@@ -12,7 +12,7 @@ import settingsReducer from './reducers/settings';
 import sessionReducer from './reducers/session';
 import { IDownloadIds, IExtractedModData, INexusDownloadInfo, IProfileData, IProps, NotPremiumError } from './types';
 import { convertGameDomain, compareIds, extractIds, formatTime,
-  genIdentifier, genProps, isPremium } from './util';
+  genIdentifier, genProps, isPremium, resolveIdsUsingMD5 } from './util';
 import Settings from './views/Settings';
 import ProfileSelectionDialog from './views/ProfileSelectionDialog';
 
@@ -25,10 +25,10 @@ function init(context: types.IExtensionContext) {
   context.registerReducer(['session', 'depfulfiller'], sessionReducer);
 
   context.registerAction('mods-action-icons', 300, 'clone', {}, 'Export Dependencies',
-    instanceIds => genDependencyManifest(context.api, instanceIds));
+    instanceIds => { genDependencyManifest(context.api, instanceIds); });
 
   context.registerAction('mods-multirow-actions', 300, 'clone', {}, 'Export Dependencies',
-    instanceIds => genDependencyManifest(context.api, instanceIds));
+    instanceIds => { genDependencyManifest(context.api, instanceIds); });
 
   context.registerAction('mod-icons', 300, 'import', {}, 'Import From Dependencies Dialog',
     instanceIds => queryImportType(context.api));
@@ -456,7 +456,7 @@ async function genFromFilePath(api: types.IExtensionApi, filePath: string) {
   }
 }
 
-function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
+async function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
   const props: IProps = genProps(api);
   if (props === undefined) {
     api.showErrorNotification('Failed to create dependencies manifest', 'no active profile',
@@ -475,7 +475,10 @@ function genDependencyManifest(api: types.IExtensionApi, modIds: string[]) {
   const includedModIds = modsData.map(mod => mod.modId);
   for (const modData of modsData) {
     const arcId: string = modData.archiveId;
-    const ids: IDownloadIds = extractIds(props.downloads[arcId]);
+    let ids: IDownloadIds = extractIds(props.downloads[arcId]);
+    if (ids === undefined && props.downloads[arcId]?.fileMD5 !== undefined) {
+      ids = await resolveIdsUsingMD5(api, arcId);
+    }
     if (ids === undefined || props.downloads[arcId]?.localPath === undefined) {
       if (props.downloads[arcId] !== undefined) {
         log('warn', 'failed to extract required information', JSON.stringify(props.downloads[arcId]));

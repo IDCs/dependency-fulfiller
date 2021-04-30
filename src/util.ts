@@ -1,7 +1,10 @@
 import Bluebird from 'bluebird';
-import { fs, selectors, types, util } from 'vortex-api';
+import { ILookupResult } from 'modmeta-db';
+import { actions, fs, selectors, types, util } from 'vortex-api';
 
 import { IDownloadIds, IProps } from './types';
+
+import path from 'path';
 
 // We _should_ just export this from vortex-api, but I guess it's not wise to make it
 //  easy for users since we want to move away from bluebird in the future ?
@@ -31,6 +34,66 @@ export function genProps(api: types.IExtensionApi, profileId?: string): IProps {
   const mods = util.getSafe(state, ['persistent', 'mods', profile.gameId], {});
   const downloads = util.getSafe(state, ['persistent', 'downloads', 'files'], {});
   return { state, profile, mods, downloads };
+}
+
+export async function resolveIdsUsingMD5(api: types.IExtensionApi, downloadId: string): Promise<IDownloadIds> {
+  const state = api.getState();
+  let ids: IDownloadIds;
+  const download = util.getSafe(state, ['persistent', 'downloads', 'files', downloadId], undefined);
+  if (download === undefined) {
+    return undefined;
+  }
+
+  if (download.fileMD5 !== undefined) {
+    const gameId = Array.isArray(download.game) ? download.game[0] : download.game;
+    const downloadPath = selectors.downloadPathForGame(api.getState(), gameId);
+    const modInfo: ILookupResult[] = await api.lookupModMeta({
+      fileMD5: download.fileMD5,
+      filePath: path.join(downloadPath, download.localPath),
+      gameId,
+      fileSize: download.size,
+    }, true);
+    if (modInfo.length > 0) {
+      const info = modInfo[0].value;
+      const setInfo = (key: string, value: any) => {
+        if (value !== undefined) {
+          api.store.dispatch(actions.setDownloadModInfo(downloadId, key, value)); }
+      };
+
+      try {
+        const rgx = /\/mods\/(\d+)\/files\/(\d+)/i;
+        let parsed: URL;
+        try {
+          parsed = new URL(info.sourceURI);
+        } catch (err) {
+          return undefined;
+        }
+        const matches = parsed.pathname.match(rgx);
+        if ((parsed.protocol !== 'nxm:') || (matches === null) || (matches.length !== 3)) {
+          return undefined;
+        }
+
+        const domainName = info.domainName;
+        const modId = matches[1];
+        const fileId = matches[2];
+
+        ids = { gameId, modId: modId.toString(), fileId: fileId.toString() };
+
+        // The state should have this information!
+        setInfo('source', 'nexus');
+        setInfo('nexus.ids.gameId', domainName);
+        setInfo('nexus.ids.fileId', fileId);
+        setInfo('nexus.ids.modId', modId);
+      } catch (err) {
+        // failed to parse the uri as an nxm link - that's not an error in this case, if
+        // the meta server wasn't nexus mods this is to be expected
+      }
+
+      setInfo('meta', info);
+    }
+  }
+
+  return Promise.resolve(ids);
 }
 
 export function extractIds(download: types.IDownload): IDownloadIds {
