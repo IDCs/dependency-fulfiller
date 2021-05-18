@@ -10,9 +10,9 @@ function genDownloadProps(api: types.IExtensionApi, archiveName: string) {
   return { downloads, downloadId, state };
 }
 
-async function install(api: types.IExtensionApi,
-                       downloadInfo: INexusDownloadInfo,
-                       downloadId: string) {
+export async function install(api: types.IExtensionApi,
+                              downloadInfo: INexusDownloadInfo,
+                              downloadId: string) {
   const state = api.getState();
   if (downloadInfo.allowAutoInstall && state.settings.automation?.['install'] !== true) {
     const mods: { [modId: string]: types.IMod } =

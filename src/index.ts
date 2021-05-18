@@ -7,7 +7,7 @@ import { actions, fs, log, selectors, types, util } from 'vortex-api';
 import { setReadNonPremiumNotif } from './actions/settings';
 import { setOpenProfileSelect, setProfileUserData, setUserDataFilePath } from './actions/session';
 import { ACTIVITY_NOTIF, DEP_MAN_SUFFIX, NEXUS } from './common';
-import { downloadImpl } from './downloader';
+import { downloadImpl, install } from './downloader';
 import settingsReducer from './reducers/settings';
 import sessionReducer from './reducers/session';
 import { IDownloadIds, IExtractedModData, INexusDownloadInfo, IProfileData, IProps, NotPremiumError } from './types';
@@ -344,16 +344,17 @@ async function fulfillDependencies(api: types.IExtensionApi, downloads: INexusDo
       const props: IProps = genProps(api);
       // Check if the user already has this archive.
       if (props !== undefined) {
-        const userHasArc = Object.keys(props.downloads).find(dlId => {
+        const dwnlId = Object.keys(props.downloads).find(dlId => {
           const dl = props.downloads[dlId];
           if (dl?.localPath === download.archiveName) {
             return true;
           }
           const ids = extractIds(dl);
           return compareIds(ids, download.downloadIds);
-        }) !== undefined;
+        });
 
-        if (userHasArc) {
+        if (dwnlId !== undefined) {
+          await install(api, download, dwnlId);
           continue;
         }
       }
