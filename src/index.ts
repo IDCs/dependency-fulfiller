@@ -82,6 +82,7 @@ async function genFromSubscription(api: types.IExtensionApi): Promise<void> {
   try {
     await fetchDepFromUrl(subscription.url);
     await genFromFilePath(api, path.join(MANIFESTS_PATH, SUB_FILE));
+    api.store.dispatch(actions.setDeploymentNecessary(profile.gameId, true));
   } catch (err) {
     api.showErrorNotification('Failed to import from subscription', err);
   }
