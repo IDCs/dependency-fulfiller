@@ -9,6 +9,8 @@ Alternatively mod authors can distribute a generated dependency file with their 
 
 ![alt text](https://staticdelivery.nexusmods.com/mods/2295/images/225/225-1617393804-432707287.gif "Importing from clipboard")
 
+![alt text](https://staticdelivery.nexusmods.com/mods/2295/images/225/225-1622985876-865714052.gif "Importing from subscription")
+
 Example data:
 ```
 [
