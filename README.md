@@ -45,6 +45,6 @@ Example data:
 - Add ability to export/import external dependencies
 - ~~Add ability to export/import mod conflict rules~~
 - A more robust downloading experience for non-premium users
-- Add metadata resolution to automatically detect manually added mods (sourced from NexusMods)
+- ~~Add metadata resolution to automatically detect manually added mods (sourced from NexusMods)
 
 If you have any other suggestions feel free to create a github issue for it.
