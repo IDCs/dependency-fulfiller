@@ -5,6 +5,8 @@ import { connect } from 'react-redux';
 import * as Redux from 'redux';
 import { ComponentEx, More, Toggle, types, util } from 'vortex-api';
 
+import UrlSubscriber from './UrlSubscriber';
+
 import { setAutoFulfillDependencies, setEnableDebugMode } from '../actions/settings';
 import { DEP_MAN_SUFFIX } from '../common';
 
@@ -22,6 +24,15 @@ type IProps = IActionProps & IConnectedProps;
 
 class Settings extends ComponentEx<IProps, {}> {
   public render(): JSX.Element {
+    return (
+      <div>
+        {this.renderToggles()}
+        <UrlSubscriber/>
+      </div>
+    );
+  }
+
+  private renderToggles(): JSX.Element {
     const { t, autoFulfill } = this.props;
 
     return (

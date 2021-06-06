@@ -31,6 +31,7 @@ export interface INexusDownloadInfo {
   downloadIds: IDownloadIds;
   archiveName: string;
   allowAutoInstall?: boolean;
+  allowAutoEnable?: boolean;
   rules: types.IModRule[];
 }
 
@@ -44,4 +45,10 @@ export interface IProfileData {
   id: string;
   gameId: string;
   enabledModIds: string[];
+}
+
+export interface IUrlSub {
+  id: string;
+  name: string;
+  url: string;
 }

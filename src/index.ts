@@ -4,17 +4,20 @@ import * as path from 'path';
 import { setTimeout } from 'timers';
 import turbowalk, { IEntry } from 'turbowalk';
 import { actions, fs, log, selectors, types, util } from 'vortex-api';
-import { setReadNonPremiumNotif } from './actions/settings';
 import { setOpenProfileSelect, setProfileUserData, setUserDataFilePath } from './actions/session';
-import { ACTIVITY_NOTIF, DEP_MAN_SUFFIX, NEXUS } from './common';
+import { setReadNonPremiumNotif } from './actions/settings';
+import { ACTIVITY_NOTIF, DEP_MAN_SUFFIX, MANIFESTS_PATH, NEXUS, SUB_FILE } from './common';
 import { downloadImpl, install } from './downloader';
-import settingsReducer from './reducers/settings';
+import persistentReducer from './reducers/persistent';
 import sessionReducer from './reducers/session';
-import { IDownloadIds, IExtractedModData, INexusDownloadInfo, IProfileData, IProps, NotPremiumError } from './types';
-import { convertGameDomain, compareIds, extractIds, formatTime,
+import settingsReducer from './reducers/settings';
+import {
+  IDownloadIds, IExtractedModData, INexusDownloadInfo, IProfileData,
+  IProps, IUrlSub, NotPremiumError } from './types';
+import { compareIds, convertGameDomain, disableAllMods, extractIds, fetchDepFromUrl, formatTime,
   genIdentifier, genProps, isPremium, resolveIdsUsingMD5 } from './util';
-import Settings from './views/Settings';
 import ProfileSelectionDialog from './views/ProfileSelectionDialog';
+import Settings from './views/Settings';
 
 // 5 minute installation timeout should be sufficient no ?
 //  might make this configurable by the user in the future.
@@ -23,6 +26,7 @@ const TIMEOUT_MS = 60000 * 5;
 function init(context: types.IExtensionContext) {
   context.registerReducer(['settings', 'interface'], settingsReducer);
   context.registerReducer(['session', 'depfulfiller'], sessionReducer);
+  context.registerReducer(['persistent', 'depfulfiller'], persistentReducer);
 
   context.registerAction('mods-action-icons', 300, 'clone', {}, 'Export Dependencies',
     instanceIds => { genDependencyManifest(context.api, instanceIds); });
@@ -34,9 +38,21 @@ function init(context: types.IExtensionContext) {
     instanceIds => queryImportType(context.api));
 
   context.registerAction('mod-icons', 300, 'import', {}, 'Import From Application State',
-    instanceIds => { genFromUserData(context.api) }, () => {
+    instanceIds => { genFromUserData(context.api); }, () => {
       const state = context.api.getState();
       return util.getSafe(state, ['settings', 'interface', 'fulfillerDebugMode'], false);
+    });
+
+  context.registerAction('mod-icons', 300, 'import', {}, 'Import From Subscription',
+    instanceIds => { genFromSubscription(context.api); }, () => {
+      const state = context.api.getState();
+      const profile = selectors.activeProfile(state);
+      if (profile?.id === undefined) {
+        return false;
+      }
+      const subId = util.getSafe(state,
+        ['persistent', 'depfulfiller', profile.id, 'subId'], undefined);
+      return subId !== 'none' && subId !== undefined;
     });
 
   context.registerSettings('Interface', Settings, undefined, undefined, 10);
@@ -51,6 +67,24 @@ function init(context: types.IExtensionContext) {
   });
 
   return true;
+}
+
+async function genFromSubscription(api: types.IExtensionApi): Promise<void> {
+  const state = api.getState();
+  const profile = selectors.activeProfile(state);
+  const subId = util.getSafe(state,
+    ['persistent', 'depfulfiller', profile.id, 'subId'], undefined);
+  if (subId === 'none') {
+    return;
+  }
+  const subs: IUrlSub[] = util.getSafe(state, ['settings', 'interface', 'urlSubscriptions'], []);
+  const subscription = subs.find(sub => sub.id === subId);
+  try {
+    await fetchDepFromUrl(subscription.url);
+    await genFromFilePath(api, path.join(MANIFESTS_PATH, SUB_FILE));
+  } catch (err) {
+    api.showErrorNotification('Failed to import from subscription', err);
+  }
 }
 
 async function onProfileSelect(api: types.IExtensionApi, profileData: IProfileData) {
@@ -88,7 +122,8 @@ async function onProfileSelect(api: types.IExtensionApi, profileData: IProfileDa
       const ids: IDownloadIds = extractIds(persistent.downloads.files[arcId]);
       if (ids === undefined || persistent.downloads.files[arcId]?.localPath === undefined) {
         if (persistent.downloads.files[arcId] !== undefined) {
-          log('warn', 'failed to extract required information', JSON.stringify(persistent.downloads.files[arcId]));
+          log('warn', 'failed to extract required information',
+            JSON.stringify(persistent.downloads.files[arcId]));
         } else {
           log('warn', 'failed to extract required information - download archive missing', arcId);
         }
@@ -122,7 +157,7 @@ async function onProfileSelect(api: types.IExtensionApi, profileData: IProfileDa
 async function genFromUserData(api: types.IExtensionApi): Promise<void> {
   const selectedFile = await api.selectFile({
     title: 'User Persistent Data',
-    filters: [{ name: 'JSON file', extensions: ['json'] }]
+    filters: [{ name: 'JSON file', extensions: ['json'] }],
   });
 
   if (selectedFile === undefined) {
@@ -142,7 +177,8 @@ async function genFromUserData(api: types.IExtensionApi): Promise<void> {
     }
 
     api.store.dispatch(setUserDataFilePath(selectedFile));
-    const profileData: { [profileId: string]: IProfileData } = Object.keys(persistent.profiles).reduce((accum, iter) => {
+    const profileData: { [profileId: string]: IProfileData } =
+      Object.keys(persistent.profiles).reduce((accum, iter) => {
       const profile = persistent.profiles[iter];
       const modState = util.getSafe(profile, ['modState'], {});
       accum[iter] = {
@@ -179,7 +215,8 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
       const stagingFolder = selectors.installPathForGame(state, gameMode);
       const tryGenFromFilePath = async (modId: string): Promise<void> => {
         state = api.getState();
-        const mod: types.IMod = util.getSafe(state, ['persistent', 'mods', gameMode, modId], undefined);
+        const mod: types.IMod = util.getSafe(state,
+          ['persistent', 'mods', gameMode, modId], undefined);
         if (mod?.installationPath === undefined) {
           // Well if the mod is gone, no point in still trying to do this.
           log('debug', 'failed to complete dependency check - mod was removed', modId);
@@ -187,10 +224,11 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
         }
         // Mod still installing - wait for it.
         if (mod.state === 'installing') {
-          return new Promise((resolve) => setTimeout(() => resolve(tryGenFromFilePath(modId)), 5000));
+          return new Promise((resolve) => setTimeout(() =>
+            resolve(tryGenFromFilePath(modId)), 5000));
         } else if (mod.state === 'installed') {
           const installationPath = path.join(stagingFolder, mod.installationPath);
-          return genFromFilePath(api, installationPath);
+          return genFromDirPath(api, installationPath);
         }
       };
       const diff = _.difference(currMods, prevMods);
@@ -217,7 +255,8 @@ async function onModsChange(api: types.IExtensionApi, prev: any, current: any) {
 }
 
 function raiseRulesNotification(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
-  const hasRules = downloads.find(down => down.rules !== undefined && down.rules.length > 0) !== undefined;
+  const hasRules = downloads.find(down =>
+    down.rules !== undefined && down.rules.length > 0) !== undefined;
   if (!hasRules) {
     return;
   }
@@ -233,7 +272,7 @@ function raiseRulesNotification(api: types.IExtensionApi, downloads: INexusDownl
       { title: 'More', action: (dismiss) => api.showDialog('question', t('Import conflict rules'), {
         bbcode: t('The imported dependencies contain pre-defined rule metadata - if you would like to try '
                 + 'to import these, please make sure that all the dependencies have finished downloading '
-                + 'and are installed before clicking the "Import Rules" button.')
+                + 'and are installed before clicking the "Import Rules" button.'),
       }, [
         { label: 'Do This Later' },
         {
@@ -241,12 +280,12 @@ function raiseRulesNotification(api: types.IExtensionApi, downloads: INexusDownl
           action: () => {
             fulfillRules(api, downloads);
             dismiss();
-          }
-        }
-      ])
-      }
-    ]
-  })
+          },
+        },
+      ]),
+      },
+    ],
+  });
 }
 
 function fulfillRules(api: types.IExtensionApi, downloads: INexusDownloadInfo[]) {
@@ -256,7 +295,8 @@ function fulfillRules(api: types.IExtensionApi, downloads: INexusDownloadInfo[])
   }
 
   // const reverseType = (rule: IModRule) => rule.type === 'before' ? 'after' : 'before';
-  const hasRule = (rule: types.IModRule, modId: string) => util.testModReference(props.mods[modId], rule.reference);
+  const hasRule = (rule: types.IModRule, modId: string) =>
+    util.testModReference(props.mods[modId], rule.reference);
 
   // const refMod = (rule: IModRule) => Object.keys(props.mods)
   //   .map(iter => props.mods[iter])
@@ -274,7 +314,8 @@ function fulfillRules(api: types.IExtensionApi, downloads: INexusDownloadInfo[])
 
     for (const rule of download.rules) {
       if (installed.includes(rule.reference?.id) && !hasRule(rule, mod(download.archiveName))) {
-        api.store.dispatch(actions.addModRule(convertGameDomain(download.downloadIds.gameId), mod(download.archiveName), rule));
+        api.store.dispatch(actions.addModRule(
+          convertGameDomain(download.downloadIds.gameId), mod(download.archiveName), rule));
       }
     }
   }
@@ -302,7 +343,8 @@ async function fulfillDependencies(api: types.IExtensionApi, downloads: INexusDo
     } catch (err) {
       const state = api.getState();
       if (err instanceof NotPremiumError) {
-        const readNotif = util.getSafe(state, ['settings', 'interface', 'readNonPremiumNotification'], false);
+        const readNotif = util.getSafe(state,
+          ['settings', 'interface', 'readNonPremiumNotification'], false);
         if (!readNotif) {
           api.sendNotification({
             message: 'Cannot fulfill dependencies automatically',
@@ -329,7 +371,7 @@ async function fulfillDependencies(api: types.IExtensionApi, downloads: INexusDo
                     action: () => {
                       api.store.dispatch(setReadNonPremiumNotif(true));
                       dismiss();
-                    }
+                    },
                   },
                 ]),
               },
@@ -389,7 +431,7 @@ function queryImportType(api: types.IExtensionApi) {
   }, [
     { label: 'Close' },
     { label: 'Import from Clipboard', action: () => genFromClipboard(api) },
-    { label: 'Import from Staging Folder', action: () => genFromFilePath(api, stagingFolder) },
+    { label: 'Import from Staging Folder', action: () => genFromDirPath(api, stagingFolder) },
   ]);
 }
 
@@ -415,8 +457,49 @@ async function genFromClipboard(api: types.IExtensionApi) {
 }
 
 async function genFromFilePath(api: types.IExtensionApi, filePath: string) {
+  let parsedDownloadInfo: INexusDownloadInfo[] = [];
+  try {
+    const data = await fs.readFileAsync(filePath, { encoding: 'utf8' });
+    const parsedData: INexusDownloadInfo[] = JSON.parse(data);
+    parsedDownloadInfo = parsedDownloadInfo.concat(parsedData);
+  } catch (err) {
+    log('error', 'failed to read/parse dependency manifest', err);
+  }
+
+  const lockedSub = util.getSafe(api.getState(), ['settings', 'interface', 'lockSub'], false);
+  if (lockedSub) {
+    disableAllMods(api);
+    parsedDownloadInfo = parsedDownloadInfo.map(download => ({
+      ...download,
+      allowAutoEnable: true,
+    }));
+  }
+  const uniqueDownloads: INexusDownloadInfo[] =
+    Array.from(new Set(parsedDownloadInfo.map(a => genIdentifier(a.downloadIds))))
+      .map(id => parsedDownloadInfo.find(a => genIdentifier(a.downloadIds) === id));
+
+  if (uniqueDownloads.length === 0) {
+    return;
+  }
+  try {
+    await fulfillDependencies(api, uniqueDownloads);
+    api.sendNotification({
+      message: 'All dependencies fulfilled',
+      type: 'success',
+      id: 'all-dependencies-fulfilled',
+      displayMS: 5000,
+    });
+    raiseRulesNotification(api, uniqueDownloads);
+    return Promise.resolve();
+  } catch (err) {
+    api.showErrorNotification('Failed to download dependencies', err,
+      { allowReport: false });
+  }
+}
+
+async function genFromDirPath(api: types.IExtensionApi, dirPath: string) {
   let allManifests: IEntry[] = [];
-  await turbowalk(filePath, entries => {
+  await turbowalk(dirPath, entries => {
     const manifests = entries.filter(entry => !entry.isDirectory
       && path.basename(entry.filePath).endsWith(DEP_MAN_SUFFIX));
     allManifests = allManifests.concat(manifests);
@@ -482,17 +565,20 @@ async function genDependencyManifest(api: types.IExtensionApi, modIds: string[])
     }
     if (ids === undefined || props.downloads[arcId]?.localPath === undefined) {
       if (props.downloads[arcId] !== undefined) {
-        log('warn', 'failed to extract required information', JSON.stringify(props.downloads[arcId]));
+        log('warn', 'failed to extract required information',
+          JSON.stringify(props.downloads[arcId]));
       } else {
         log('warn', 'failed to extract required information - download archive missing', arcId);
       }
       continue;
     }
 
+    const allowAutoEnable = props.state.settings.automation.enable;
     const nexusDownload: INexusDownloadInfo = {
       archiveName: props.downloads[arcId].localPath,
       downloadIds: ids,
       allowAutoInstall: true,
+      allowAutoEnable,
       rules: modData.rules.filter(rule =>
         includedModIds.includes(rule.reference.id)),
     };
@@ -507,11 +593,10 @@ async function genDependencyManifest(api: types.IExtensionApi, modIds: string[])
     actions: [
       {
         title: 'Save to file', action: async () => {
-          const dependencyManifestPath = path.join(util.getVortexPath('temp'), 'dependency manifests');
-          await fs.ensureDirWritableAsync(dependencyManifestPath);
-          const tmpPath = path.join(dependencyManifestPath, `${formatTime(timestamp)}${DEP_MAN_SUFFIX}`);
+          await fs.ensureDirWritableAsync(MANIFESTS_PATH);
+          const tmpPath = path.join(MANIFESTS_PATH, `${formatTime(timestamp)}${DEP_MAN_SUFFIX}`);
           await fs.writeFileAsync(tmpPath, JSON.stringify(nexusDownloads, undefined, 2));
-          util.opn(dependencyManifestPath).catch(() => null);
+          util.opn(MANIFESTS_PATH).catch(() => null);
         },
       },
       {

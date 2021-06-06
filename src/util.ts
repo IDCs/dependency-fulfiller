@@ -1,10 +1,10 @@
 import Bluebird from 'bluebird';
 import { ILookupResult } from 'modmeta-db';
+import path from 'path';
 import { actions, fs, selectors, types, util } from 'vortex-api';
 
+import { MANIFESTS_PATH, SUB_FILE } from './common';
 import { IDownloadIds, IProps } from './types';
-
-import path from 'path';
 
 // We _should_ just export this from vortex-api, but I guess it's not wise to make it
 //  easy for users since we want to move away from bluebird in the future ?
@@ -149,4 +149,26 @@ export function genIdentifier(ids: IDownloadIds): string {
   }
 
   return `${ids.fileId}_${ids.modId}_${ids.gameId}`;
+}
+
+export function disableAllMods(api: types.IExtensionApi) {
+  const state = api.getState();
+  const activeProfile = selectors.activeProfile(state);
+  const mods: { [modId: string]: types.IMod } = util.getSafe(state,
+    ['persistent', 'mods', activeProfile.gameId], {});
+  for (const modId of Object.keys(mods)) {
+    api.store.dispatch(actions.setModEnabled(activeProfile.id, modId, false));
+  }
+}
+
+export async function fetchDepFromUrl(url: string) {
+  const dest = path.join(MANIFESTS_PATH, SUB_FILE);
+  try {
+    const res = await fetch(url);
+    const buffer = await res.arrayBuffer();
+    await fs.ensureDirWritableAsync(MANIFESTS_PATH);
+    await fs.writeFileAsync(dest, Buffer.from(buffer));
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }

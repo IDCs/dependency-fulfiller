@@ -1,4 +1,4 @@
-import { log, types, util } from 'vortex-api';
+import { actions, log, types, selectors, util } from 'vortex-api';
 
 import { INexusDownloadInfo, NotPremiumError } from './types';
 import { convertGameDomain, isPremium } from './util';
@@ -15,20 +15,31 @@ export async function install(api: types.IExtensionApi,
                               downloadId: string) {
   const state = api.getState();
   if (downloadInfo.allowAutoInstall && state.settings.automation?.['install'] !== true) {
+    const gameId = convertGameDomain(downloadInfo.downloadIds.gameId);
+    const profileId = selectors.lastActiveProfileForGame(state, gameId);
     const mods: { [modId: string]: types.IMod } =
-      util.getSafe(state, ['persistent', 'mods', convertGameDomain(downloadInfo.downloadIds.gameId)], {});
-    const ismodInstalled = Object.keys(mods).find(id =>
-      mods[id].attributes?.fileId === downloadInfo.downloadIds.fileId) !== undefined;
-    if (!ismodInstalled) {
+      util.getSafe(state, ['persistent', 'mods', gameId], {});
+    const mId = Object.keys(mods).find(id =>
+      mods[id].attributes?.fileId === downloadInfo.downloadIds.fileId);
+    if (!mId) {
       return new Promise((resolve, reject) => {
         api.events.emit('start-install-download', downloadId, true, (err, modId) => {
           if (err) {
             log('error', 'failed to install dependency', err);
             return resolve(undefined);
           }
+
+          if (downloadInfo.allowAutoEnable && state.settings.automation.enable !== true) {
+            api.store.dispatch(actions.setModEnabled(profileId, modId, true));
+          }
           return resolve(modId);
         });
-      })
+      });
+    } else {
+      if (downloadInfo.allowAutoEnable && state.settings.automation.enable !== true) {
+        api.store.dispatch(actions.setModEnabled(profileId, mId, true));
+      }
+      return Promise.resolve(mId);
     }
   }
 

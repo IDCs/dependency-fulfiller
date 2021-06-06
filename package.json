@@ -1,6 +1,6 @@
 {
   "name": "dependency-fulfiller",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Manifest file based dependency auto downloader/installer",
   "main": "./out/index.js",
   "repository": "",
