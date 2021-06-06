@@ -5,10 +5,11 @@ This is an experimental Vortex extension which aims to give users the ability to
 
 ![alt text](https://staticdelivery.nexusmods.com/mods/2295/images/225/225-1617393804-228745939.gif "Importing from clipboard")
 
-Alternatively mod authors can distribute a generated dependency file with their mods which will immediately attempt to fulfill mod dependencies on successful mod installation (if the user enables this functionality in their settings page). The "Import Dependencies" button on the mods page can also be used to tell Vortex to search for dependency files within the current game's staging folder and attempt to fulfill them that way (for those of us that prefer full control over when the fulfillment system kicks in)
+Mod authors can distribute a generated dependency file with their mods which will immediately attempt to fulfill mod dependencies on successful mod installation (if the user enables this functionality in their settings page). The "Import Dependencies" button on the mods page can also be used to tell Vortex to search for dependency files within the current game's staging folder and attempt to fulfill them that way (for those of us that prefer full control over when the fulfillment system kicks in)
 
 ![alt text](https://staticdelivery.nexusmods.com/mods/2295/images/225/225-1617393804-432707287.gif "Importing from clipboard")
 
+Servers can maintain a specific mod list and ask their users to "subscribe" to their dependency data which can be pulled as raw data from any hosting service. "Locking" to a certain subscription will ensure that only mods provided by the subscription are enabled and deployed.
 ![alt text](https://staticdelivery.nexusmods.com/mods/2295/images/225/225-1622985876-865714052.gif "Importing from subscription")
 
 Example data:
@@ -47,6 +48,6 @@ Example data:
 - Add ability to export/import external dependencies
 - ~~Add ability to export/import mod conflict rules~~
 - A more robust downloading experience for non-premium users
-- ~~Add metadata resolution to automatically detect manually added mods (sourced from NexusMods)
+- ~~Add metadata resolution to automatically detect manually added mods (sourced from NexusMods)~~
 
 If you have any other suggestions feel free to create a github issue for it.
